@@ -3,10 +3,13 @@ package sqlite3
 import (
 	"bytes"
 	"context"
+	"io/fs"
+	"path/filepath"
 	"strconv"
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/experimental/writefs"
 )
 
 type Conn struct {
@@ -24,9 +27,22 @@ func Open(filename string) (conn *Conn, err error) {
 func OpenFlags(filename string, flags OpenFlag) (conn *Conn, err error) {
 	once.Do(compile)
 
+	var fs fs.FS
+	if filename != "" && filename != ":memory:" {
+		dir := filepath.Dir(filename)
+		filename = filepath.Base(filename)
+		fs, err = writefs.NewDirFS(dir)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	ctx := context.Background()
 	cfg := wazero.NewModuleConfig().
 		WithName("sqlite3-" + strconv.FormatUint(counter.Add(1), 10))
+	if fs != nil {
+		cfg = cfg.WithFS(fs)
+	}
 	module, err := wasm.InstantiateModule(ctx, module, cfg)
 	if err != nil {
 		return nil, err
